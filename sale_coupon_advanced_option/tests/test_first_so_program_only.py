@@ -65,17 +65,12 @@ class TestProgramForFirstSaleOrder(TestSaleCouponCommon):
         )
 
         self.partner1 = self.env["res.partner"].create({"name": "Jane Doe"})
-
         self.partner2 = self.env["res.partner"].create({"name": "John Doe"})
-
         self.partner3 = self.env["res.partner"].create({"name": "John Deere"})
 
-    def test_first_sale_order_program(self):
-
-        #  test first sale order program
-
-        order1 = self.env["sale.order"].create({"partner_id": self.partner1.id})
-        order1.write(
+    def create_sale_order(self, partner, qty):
+        order = self.env["sale.order"].create({"partner_id": partner.id})
+        order.write(
             {
                 "order_line": [
                     (
@@ -84,7 +79,7 @@ class TestProgramForFirstSaleOrder(TestSaleCouponCommon):
                         {
                             "product_id": self.product_A.id,
                             "name": "Product A",
-                            "product_uom_qty": 2.0,
+                            "product_uom_qty": qty,
                             "product_uom": self.uom_unit.id,
                         },
                     ),
@@ -92,8 +87,20 @@ class TestProgramForFirstSaleOrder(TestSaleCouponCommon):
             }
         )
 
+        return order
+
+    def process_coupon(self, order, code):
+        self.env["sale.coupon.apply.code"].with_context(active_id=order.id).create(
+            {"coupon_code": code}
+        ).process_coupon()
+
+    def test_promo_applied_on_first_so(self):
+
+        order1 = self.create_sale_order(self.partner1, 2.0)
         order1.recompute_coupon_lines()
+
         discounts = set(order1.order_line.mapped("name")) - {"Product A"}
+
         self.assertEqual(len(discounts), 1, "Order should contain one discount")
         self.assertTrue(
             "Get 10% discount for 1st order" in discounts.pop(),
@@ -103,150 +110,73 @@ class TestProgramForFirstSaleOrder(TestSaleCouponCommon):
             len(order1.order_line.ids), 2, "The order should contain 2 lines"
         )
 
-        #  test non first sale order
+    def test_promo_first_and_second_so(self):
 
-        order2 = self.env["sale.order"].create({"partner_id": self.partner1.id})
-        order2.write(
-            {
-                "order_line": [
-                    (
-                        0,
-                        False,
-                        {
-                            "product_id": self.product_A.id,
-                            "name": "Product A",
-                            "product_uom_qty": 3.0,
-                            "product_uom": self.uom_unit.id,
-                        },
-                    ),
-                ]
-            }
-        )
+        order1 = self.create_sale_order(self.partner1, 2.0)
+        order1.recompute_coupon_lines()
+        discounts = set(order1.order_line.mapped("name")) - {"Product A"}
 
-        order2.recompute_coupon_lines()
         self.assertEqual(
-            len(order2.order_line.ids), 1, "The order should contain 1 line"
+            len(order1.order_line.ids), 2, "The order should contain 2 lines"
         )
-        discounts = set(order2.order_line.mapped("name")) - {"Product A"}
-        self.assertEqual(len(discounts), 0, "Order should contain no discount")
+        self.assertEqual(len(discounts), 1, "Order should contain one discount")
+        self.assertTrue(
+            "Get 10% discount for 1st order" in discounts.pop(),
+            "The discount should be a 10% discount",
+        )
 
         self.program2.write({"active": True})
+
+        order2 = self.create_sale_order(self.partner1, 4.0)
         order2.recompute_coupon_lines()
+        discounts = set(order2.order_line.mapped("name")) - {"Product A"}
+
         self.assertEqual(
             len(order2.order_line.ids), 2, "The order should contain 2 lines"
         )
-        discounts = set(order2.order_line.mapped("name")) - {
-            "Product A"
-        }  # to check by content of name that 2nd program was applied
-        self.assertEqual(len(discounts), 1, "Order should contain 1 discount")
+        self.assertEqual(len(discounts), 1, "Order should contain one discount")
         self.assertTrue(
             "Get 50% discount" in discounts.pop(),
             "The discount should be a 50% discount",
         )
 
-        # test first sale order another partner
-
-        order3 = self.env["sale.order"].create({"partner_id": self.partner2.id})
-
-        order3.write(
-            {
-                "order_line": [
-                    (
-                        0,
-                        False,
-                        {
-                            "product_id": self.product_A.id,
-                            "name": "Product A",
-                            "product_uom_qty": 3.0,
-                            "product_uom": self.uom_unit.id,
-                        },
-                    ),
-                ]
-            }
-        )
-
-        order3.recompute_coupon_lines()
-        discounts = set(order3.order_line.mapped("name")) - {"Product A"}
-
-        self.assertEqual(
-            len(order3.order_line.ids), 2, "The order should contain 2 lines"
-        )
-        self.assertEqual(
-            len(discounts),
-            1,
-            "the order should contain 1 Product A line and a discount",
-        )
-
-        # test first sale order with promo code
+    def test_promo_code_sale_order_program(self):
 
         self.env["sale.coupon.generate"].with_context(
             active_id=self.program3.id
         ).create({"generation_type": "nbr_coupon", "nbr_coupons": 1}).generate_coupon()
 
-        order4 = self.env["sale.order"].create({"partner_id": self.partner3.id})
+        order1 = self.create_sale_order(self.partner3, 2.0)
+        self.process_coupon(order1, "30_discount")
 
-        order4.write(
-            {
-                "order_line": [
-                    (
-                        0,
-                        False,
-                        {
-                            "product_id": self.product_A.id,
-                            "name": "Product A",
-                            "product_uom_qty": 2.0,
-                            "product_uom": self.uom_unit.id,
-                        },
-                    ),
-                ]
-            }
-        )
-
-        self.env["sale.coupon.apply.code"].with_context(active_id=order4.id).create(
-            {"coupon_code": "30_discount"}
-        ).process_coupon()
-
-        discounts = set(order3.order_line.mapped("name")) - {"Product A"}
+        discounts = set(order1.order_line.mapped("name")) - {"Product A"}
 
         self.assertEqual(
-            len(order3.order_line.ids), 2, "The order should contain 2 lines"
+            len(order1.order_line.ids), 2, "The order should contain 2 lines"
         )
         self.assertEqual(
             len(discounts),
             1,
             "the order should contain 1 Product A line and a discount",
         )
-
-        # next so for old partner with 1st SO only code usage
-
-        order5 = self.env["sale.order"].create({"partner_id": self.partner3.id})
-
-        order5.write(
-            {
-                "order_line": [
-                    (
-                        0,
-                        False,
-                        {
-                            "product_id": self.product_A.id,
-                            "name": "Product A",
-                            "product_uom_qty": 5.0,
-                            "product_uom": self.uom_unit.id,
-                        },
-                    ),
-                ]
-            }
+        self.assertTrue(
+            "Get 30% discount with code" in discounts.pop(),
+            "The discount should be a 50% discount",
         )
 
-        with self.assertRaises(UserError):
-            self.env["sale.coupon.apply.code"].with_context(active_id=order5.id).create(
-                {"coupon_code": "30_discount"}
-            ).process_coupon()
+    def test_reused_code_promo_sale_order_program(self):
 
-        discounts = set(order5.order_line.mapped("name")) - {"Product A"}
+        order1 = self.create_sale_order(self.partner3, 5.0)
+        self.process_coupon(order1, "30_discount")
+
+        order2 = self.create_sale_order(self.partner3, 5.0)
+        with self.assertRaises(UserError):
+            self.process_coupon(order1, "30_discount")
+
+        discounts = set(order2.order_line.mapped("name")) - {"Product A"}
 
         self.assertEqual(
-            len(order5.order_line.ids), 1, "The order should contain 1 line"
+            len(order2.order_line.ids), 1, "The order should contain 1 line"
         )
         self.assertEqual(
             len(discounts),
